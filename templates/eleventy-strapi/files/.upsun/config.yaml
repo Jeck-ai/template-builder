@@ -1,0 +1,133 @@
+applications:
+    eleventy:
+        # The runtime the application uses.
+        type: nodejs:14
+        # Configuration of the build of this application.
+        build:
+            # The default `npm install` is not run, favoring yarn in the build hook.
+            flavor: none
+        # Build dependencies.
+        dependencies:
+            nodejs:
+                yarn: "1.22.5"
+        # The hooks executed at various points in the lifecycle of the application.
+        hooks:
+            # The build hook runs after yarn has been downloaded.
+            # No services are available but the disk is writeable.
+            build: "yarn --ignore-optional --frozen-lockfile \n"
+            # The post_deploy hook runs after your application has been deployed and started.
+            # Code cannot be modified at this point but the database is available.
+            # At this point, the Strapi container has been deployed and is accepting requests.
+            post_deploy: |
+                yarn build
+        # The relationships of the application with services or other applications.
+        #
+        # The left-hand side is the name of the relationship as it will be exposed
+        # to the application in the PLATFORM_RELATIONSHIPS variable. The right-hand
+        # side is in the form `<service name>:<endpoint name>`.
+        relationships:
+            strapi: "strapi:http"
+        # The configuration of app when it is exposed to the web.
+        web:
+            commands:
+                # Start command run after build phase has completed, prior to deploy hook.
+                start: |
+                    yarn start --port=$PORT
+        # The 'mounts' describe writable, persistent filesystem mounts in the application.
+        mounts:
+            # Eleventy's img dir.
+            '/img':
+                source: storage
+                source_path: img
+            # Final build directory.
+            '_site':
+                source: storage
+                source_path: site
+        source:
+            root: /eleventy/
+    strapi:
+        # The runtime the application uses.
+        type: nodejs:12
+        # Configuration of the build of this application.
+        build:
+            # The default `npm install` is not run, favoring yarn in the build hook.
+            flavor: none
+        # Build dependencies.
+        dependencies:
+            nodejs:
+                yarn: "1.22.5"
+        # The hooks executed at various points in the lifecycle of the application.
+        hooks:
+            # The build hook runs after yarn has been downloaded.
+            # No services are available but the disk is writeable.
+            build: "# Move committed files in soon-to-be mounts into temp directory.\nchmod +x handle_mounts.sh\n./handle_mounts.sh\n\n# Install dependencies and build Strapi.\nyarn --ignore-optional --frozen-lockfile \nyarn build\n"
+            # The deploy hook runs after your application has been deployed and started.
+            # Code cannot be modified at this point but the database is available.
+            # The site is not accepting requests while this script runs so keep it
+            # fast.
+            deploy: |
+                # Move committed files from temp directory back into mounts.
+                ./handle_mounts.sh
+        # The relationships of the application with services or other applications.
+        #
+        # The left-hand side is the name of the relationship as it will be exposed
+        # to the application in the PLATFORM_RELATIONSHIPS variable. The right-hand
+        # side is in the form `<service name>:<endpoint name>`.
+        relationships:
+            postgresdatabase: "dbpostgres:postgresql"
+        # The configuration of app when it is exposed to the web.
+        web:
+            commands:
+                # Start command run after build phase has completed, prior to deploy hook.
+                start: |
+                    # Production start on `master`, development server otherwise.
+                    if [ "$PLATFORM_BRANCH" = master ]; then
+                        NODE_ENV=production yarn start
+                    else
+                        yarn develop
+                    fi
+        # The 'mounts' describe writable, persistent filesystem mounts in the application.
+        mounts:
+            # Strapi's cache directory.
+            '/.cache':
+                source: storage
+                source_path: cache
+            # Allow for updates to the API (new JSONs) at runtime.
+            'api':
+                source: storage
+                source_path: api
+            # Allow GraphQL schema updates (JSON) at runtime.
+            'exports':
+                source: storage
+                source_path: exports
+            # Give write access for extension configuration JSONs.
+            'extensions':
+                source: storage
+                source_path: extensions
+            # Allow for custom components at runtime.
+            'components':
+                source: storage
+                source_path: components
+            # Allow for media uploads at runtime.
+            'public':
+                source: storage
+                source_path: public
+        source:
+            root: /strapi/
+services:
+    dbpostgres:
+        type: postgresql:12
+routes:
+    "https://www.{default}/":
+        type: upstream
+        upstream: "eleventy:http"
+    "https://{default}/":
+        type: redirect
+        to: "https://www.{default}/"
+    "https://www.backend.{default}/":
+        type: upstream
+        id: strapi
+        upstream: "strapi:http"
+    "https://backend.{default}/":
+        type: redirect
+        to: "https://www.backend.{default}/"

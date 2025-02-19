@@ -1,0 +1,161 @@
+applications:
+    drupal:
+        type: 'php:8.1'
+        variables:
+            env:
+                CREATE_DEMO_NODES: true
+                CREATE_PATHAUTO_ALIASES: true
+        dependencies:
+            php:
+                composer/composer: '^2'
+        runtime:
+            extensions:
+                - redis
+                - sodium
+        build:
+            flavor: composer
+        hooks:
+            deploy: !include
+                type: string
+                path: platformsh-scripts/hooks.deploy.sh
+        relationships:
+            database: 'db:mysql'
+            redis: 'cache:redis'
+        mounts:
+            /web/sites/default/files:
+                source: storage
+                source_path: 'files'
+            /tmp:
+                source: storage
+                source_path: 'tmp'
+            /private:
+                source: storage
+                source_path: 'private'
+            /.drush:
+                source: storage
+                source_path: 'drush'
+            /drush-backups:
+                source: storage
+                source_path: 'drush-backups'
+            /.console:
+                source: storage
+                source_path: 'console'
+            deploy:
+                source: service
+                service: files
+                source_path: deploy
+        web:
+            locations:
+                /:
+                    root: 'web'
+                    expires: 5m
+                    passthru: '/index.php'
+                    allow: false
+                    rules:
+                        \.(jpe?g|png|gif|svgz?|css|js|map|ico|bmp|eot|woff2?|otf|ttf)$:
+                            allow: true
+                        ^/robots\.txt$:
+                            allow: true
+                        ^/sitemap\.xml$:
+                            allow: true
+                        ^/sites/sites\.php$:
+                            scripts: false
+                        ^/sites/[^/]+/settings.*?\.php$:
+                            scripts: false
+                /sites/default/files:
+                    allow: true
+                    expires: 5m
+                    passthru: '/index.php'
+                    root: 'web/sites/default/files'
+                    scripts: false
+                    rules:
+                        ^/sites/default/files/(css|js):
+                            expires: 2w
+        crons:
+            drupal:
+                spec: '*/19 * * * *'
+                commands:
+                    start: 'cd web ; drush core-cron'
+        source:
+            root: /api/
+    gatsby:
+        type: 'nodejs:14'
+        variables:
+            env:
+                NODE_OPTIONS: --max-old-space-size=1536
+                GENERATED_VARS: 'deploy/platformsh.environment'
+        dependencies:
+            nodejs:
+                # yarn: "1.22.17"
+                pm2: "5.2.0"
+        hooks:
+            post_deploy: |
+                # Verify the connection to the backend can be made with those variables.
+                # . $GENERATED_VARS
+                # Gatsby clean on a RO-filesystem
+                rm -rf .cache/* && rm -rf public/*
+                npm run build -- --no-color
+        web:
+            commands:
+                start: |
+                    # npm run serve -- -p $PORT --no-color
+
+                    APP=$(cat package.json | jq -r '.name')
+                    pm2 start npm --no-daemon --watch --name $APP -- run serve -- -p $PORT --no-color
+
+
+
+                    # Maybe since we're foregoing the first deploy, yarn start is good enough.
+                    # if [ -f "$GENERATED_VARS" ]; then
+                    #     # Source environment variables, build the frontend, and start the server.
+                    #     # . $GENERATED_VARS
+                    #     npm run clean
+                    #     npm run build
+                    #     npm run serve
+                    #     # APP=$(cat package.json | jq -r '.name')
+                    #     # pm2 start npm --no-daemon --watch --name $APP -- preview -- -p $PORT
+                    # else
+                    #     # On the first deploy, display next steps page.
+                    #     node first_deploy.js
+                    # fi
+        mounts:
+            /.cache:
+                source: storage
+                source_path: 'cache'
+            /.config:
+                source: storage
+                source_path: 'config'
+            /.pm2:
+                source: storage
+                source_path: 'pm2'
+            public:
+                source: storage
+                source_path: 'public'
+            deploy:
+                source: service
+                service: files
+                source_path: deploy
+        source:
+            root: /client/
+services:
+    db:
+        type: mariadb:10.4
+    cache:
+        type: redis:5.0
+routes:
+    "https://www.{default}/":
+        type: upstream
+        upstream: "gatsby:http"
+    "https://{default}/":
+        type: redirect
+        to: "https://www.{default}/"
+    "https://backend.{default}/":
+        type: upstream
+        upstream: "drupal:http"
+        cache:
+            enabled: true
+            # Base the cache on the session cookie and custom Drupal cookies. Ignore all other cookies.
+            cookies: ['/^SS?ESS/', '/^Drupal.visitor/']
+    "https://www.backend.{default}/":
+        type: redirect
+        to: "https://backend.{default}/"

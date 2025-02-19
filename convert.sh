@@ -4,6 +4,8 @@ VERSION="0.3.5"
 
 clear
 
+ROOT=$(pwd)
+
 download_convsun() {
 
     FILE="convsun-v$VERSION-darwin-amd64.tar.gz"
@@ -46,7 +48,7 @@ convert_template(){
     
     TEMPLATE_DIR=$1
 
-    FILE="$TEMPLATE_DIR/.upsun/config.yaml"
+    FILE="$TEMPLATE_DIR/files/.upsun/config.yaml"
 
     if [ -f $FILE ]; then
         echo "File $FILE already exists."
@@ -56,7 +58,16 @@ convert_template(){
         echo "File $FILE does not exist."
     fi
 
-    ./convsun --src $TEMPLATE_DIR > $TEMPLATE_DIR/migrate-platformsh-to-upsun.md
+    # Run the conversion, keeping track of the changes made.
+    rm -rf $TEMPLATE_DIR/docs && mkdir $TEMPLATE_DIR/docs
+    ./convsun --src $TEMPLATE_DIR/files > $TEMPLATE_DIR/docs/migrate-platformsh-to-upsun.md
+
+    # Validate the configuration.
+    echo "Validating configuration"
+    cd $TEMPLATE_DIR/files
+    # @todo: this isn't outputting to the correct file, just to stdout.
+    upsun app:config-validate > ../docs/cli-validate-config.md
+    cd $ROOT
 }
 
 convert_templates_loop() {

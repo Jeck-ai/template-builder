@@ -1,0 +1,93 @@
+applications:
+    gatsby:
+        # The type key specifies the language and version for your application.
+        type: 'nodejs:14'
+        # The hooks that will be triggered when the package is deployed.
+        hooks:
+            # Build hooks can modify the application files on disk but not access any services like databases.
+            post_deploy: |
+                npm run build
+        relationships:
+            strapi: "strapi:http"
+        # The configuration of the application when it is exposed to the web.
+        web:
+            locations:
+                '/':
+                    # The public directory of the application relative to its root.
+                    root: 'public'
+                    index: ['index.html']
+                    scripts: false
+                    allow: true
+        mounts:
+            '/.cache':
+                source: storage
+                source_path: cache
+            '/.config':
+                source: storage
+                source_path: config
+            'public':
+                source: storage
+                source_path: public
+        source:
+            root: /gatsby/
+    strapi:
+        # The runtime the application uses.
+        type: nodejs:14
+        dependencies:
+            nodejs:
+                yarn: "1.19.2"
+        # The hooks that will be triggered when the package is deployed.
+        hooks:
+            # Build hooks can modify the application files on disk but not access any services like databases.
+            build: !include
+                type: string
+                path: build.sh
+        # The relationships of the application with services or other applications.
+        #
+        # The left-hand side is the name of the relationship as it will be exposed
+        # to the application in the PLATFORM_RELATIONSHIPS variable. The right-hand
+        # side is in the form `<service name>:<endpoint name>`.
+        relationships:
+            postgresdatabase: "dbpostgres:postgresql"
+        # The configuration of app when it is exposed to the web.
+        web:
+            commands:
+                start: ./start.sh
+        mounts:
+            '/.tmp':
+                source: storage
+                source_path: tmp
+            '/.cache':
+                source: storage
+                source_path: cache
+            'api':
+                source: storage
+                source_path: api
+            'components':
+                source: storage
+                source_path: components
+            'public/uploads':
+                source: storage
+                source_path: uploads
+            'extensions':
+                source: storage
+                source_path: extensions
+        source:
+            root: /strapi/
+services:
+    dbpostgres:
+        type: postgresql:12
+routes:
+    "https://www.{default}/":
+        type: upstream
+        upstream: "gatsby:http"
+    "https://{default}/":
+        type: redirect
+        to: "https://www.{default}/"
+    "https://www.backend.{default}/":
+        type: upstream
+        upstream: "strapi:http"
+    "https://backend.{default}/":
+        type: redirect
+        id: 'strapi'
+        to: "https://www.backend.{default}/"

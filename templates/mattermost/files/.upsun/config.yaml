@@ -1,0 +1,69 @@
+applications:
+    app:
+        type: 'golang:1.14'
+        hooks:
+            build: !include
+                type: string
+                path: build.sh
+            deploy: !include
+                type: string
+                path: deploy.sh
+        relationships:
+            database: "db:postgresql"
+            essearch: "searchelastic:elasticsearch"
+        web:
+            upstream:
+                socket_family: tcp
+                protocol: http
+            commands:
+                start: ./bin/mattermost
+            locations:
+                '/':
+                    root: 'client'
+                    index:
+                        - "root.html"
+                    allow: true
+                    rules:
+                        \.(css|js|gif|jpe?g|png|ttf|eot|woff2?|otf|html|ico|svg|map|json|woff?)$:
+                            allow: true
+                        ^/robots\.txt$:
+                            allow: true
+        mounts:
+            '/.config':
+                source: storage
+                source_path: config-hidden
+            'config':
+                source: storage
+                source_path: config-files
+            'logs':
+                source: storage
+                source_path: log-files
+            'data':
+                source: storage
+                source_path: data-files
+            'dist/files':
+                source: storage
+                source_path: dist-files
+            'plugins':
+                source: storage
+                source_path: plugins
+            'client/plugins':
+                source: storage
+                source_path: client_plugins
+        source:
+            root: /
+services:
+    db:
+        type: postgresql:12
+    searchelastic:
+        type: elasticsearch:7.2
+routes:
+    "https://www.{default}/":
+        primary: true
+        type: upstream
+        upstream: "app:http"
+        cache:
+            enabled: false
+    "https://{default}/":
+        type: redirect
+        to: "https://www.{default}/"

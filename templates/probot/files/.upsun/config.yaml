@@ -1,0 +1,32 @@
+applications:
+    app:
+        type: 'nodejs:12'
+        hooks:
+            build: !include
+                type: string
+                path: platformsh/setup/build.sh
+            deploy: !include
+                type: string
+                path: platformsh/setup/deploy.sh
+        mounts:
+            'registration':
+                source: storage
+                source_path: registration
+        web:
+            commands:
+                start: "npm start"
+        source:
+            operations:
+                auto-update:
+                    command: |
+                        curl -fsS https://raw.githubusercontent.com/platformsh/source-operations/main/setup.sh | { bash /dev/fd/3 sop-autoupdate; } 3<&0
+            root: /
+services: null
+routes:
+    # Each route describes how an incoming URL is going to be processed by Platform.sh.
+    "https://{default}/":
+        type: upstream
+        upstream: "app:http"
+    "https://www.{default}/":
+        type: redirect
+        to: "https://{default}/"
