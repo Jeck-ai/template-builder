@@ -1,0 +1,23 @@
+applications:
+    jenkins:
+        # The runtime the application uses.
+        type: "java:11"
+        mounts:
+            '/.jenkins':
+                source: storage
+                source_path: jenkins_source
+            '/.m2':
+                source: storage
+                source_path: maven_source
+        # The hooks executed at various points in the lifecycle of the application.
+        hooks:
+            build: "export MAVEN_OPTS='-Xmx64m' \nwget -q http://mirrors.jenkins.io/war-stable/latest/jenkins.war\n"
+        # The configuration of app when it is exposed to the web.
+        # The memory is just to a standard plan.
+        web:
+            commands:
+                start: java -jar -Xmx$(jq .info.limits.memory /run/config.json)m -XX:+ExitOnOutOfMemoryError jenkins.war --httpPort=$PORT
+        source:
+            root: /files/
+services: null
+routes: null
