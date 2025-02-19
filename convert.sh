@@ -35,6 +35,7 @@ check_convsun_download() {
         else
             echo "Desired version $VERSION is not installed."
             download_convsun
+            echo $VERSION > convsun-version
         fi
 
     else

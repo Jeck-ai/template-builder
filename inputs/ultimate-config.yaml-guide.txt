@@ -1,0 +1,773 @@
+# Ultimate Upsun Configuration
+# Location: .upsun/config.yaml
+
+# Complete service definitions
+services:
+    # Database Services
+    postgresql:
+        type: postgresql:16
+        disk: 2048
+        configuration:
+            extensions:
+                - pg_trgm
+                - hstore
+                - postgis
+                - timescaledb
+            properties:
+                timezone: 'UTC'
+            databases:
+                - main
+                - analytics
+                - reporting
+            endpoints:
+                admin:
+                    privileges:
+                        main: admin
+                        analytics: admin
+                        reporting: admin
+                    default_schema: main
+                readonly:
+                    privileges:
+                        main: ro
+                        analytics: ro
+                reporting:
+                    privileges:
+                        reporting: rw
+
+    mariadb:
+        type: mariadb:11.4
+        disk: 2048
+        configuration:
+            properties:
+                default_charset: utf8mb4
+                default_collation: utf8mb4_unicode_ci
+                max_allowed_packet: 64
+                table_open_cache: 400
+                table_definition_cache: 400
+                max_heap_table_size: 32
+                optimizer_switch: 'index_merge=on,index_merge_union=on'
+                optimizer_use_condition_selectivity: 4
+            schemas:
+                - main
+                - legacy
+            endpoints:
+                admin:
+                    privileges:
+                        main: admin
+                        legacy: admin
+                reporter:
+                    privileges:
+                        main: ro
+                importer:
+                    privileges:
+                        legacy: rw
+
+    mongodb:
+        type: mongodb-enterprise:7.0
+        disk: 2048
+
+    clickhouse:
+        type: clickhouse:24.3
+        disk: 2048
+
+    influxdb:
+        type: influxdb:2.7
+        disk: 2048
+
+    # Cache Services
+    redis:
+        type: redis:7.2
+        configuration:
+            maxmemory_policy: allkeys-lfu
+
+    redis-persistent:
+        type: redis-persistent:7.2
+        disk: 2048
+        configuration:
+            maxmemory_policy: allkeys-lfu
+
+    memcached:
+        type: memcached:1.6
+
+    # Search Services
+    elasticsearch:
+        type: elasticsearch:8.5
+        disk: 2048
+        configuration:
+            plugins:
+                - analysis-icu
+                - analysis-phonetic
+                - analysis-kuromoji
+                - analysis-smartcn
+                - analysis-stempel
+                - mapper-size
+                - mapper-murmur3
+                - ingest-attachment
+
+    opensearch:
+        type: opensearch:2
+        disk: 2048
+        configuration:
+            plugins:
+                - analysis-icu
+                - analysis-phonetic
+                - analysis-nori
+                - mapper-size
+                - mapper-murmur3
+
+    solr:
+        type: solr:9.6
+        disk: 2048
+        configuration:
+            cores:
+                mainindex:
+                    conf_dir: !archive "core1-conf"
+                extraindex:
+                    conf_dir: !archive "core2-conf"
+            configsets:
+                mainconfig: !archive "configsets/solr8"
+
+    # Message Queue Services
+    rabbitmq:
+        type: rabbitmq:3.13
+        disk: 1024
+        configuration:
+            vhosts:
+                - host1
+                - host2
+
+    kafka:
+        type: kafka:3.7
+        disk: 2048
+
+    # Storage and Security Services
+    network-storage:
+        type: network-storage:2.0
+        disk: 5120
+
+    vault:
+        type: vault-kms:1.12
+        disk: 512
+        configuration:
+            endpoints:
+                management:
+                    key: admin-key
+                    policy: admin
+                sign_and_verify:
+                    key: signing-key
+                    - policy: sign
+                    - policy: verify
+
+# Applications - One for each supported runtime with complete configurations
+applications:
+    # Python Application (API Backend)
+    python-app:
+        type: python:3.12
+        source:
+            root: '/python'
+        
+        build:
+            flavor: none
+        
+        dependencies:
+            python3:
+                gunicorn: '*'
+                psycopg2-binary: '*'
+                redis: '*'
+                elasticsearch: '*'
+                
+        hooks:
+            build: |
+                set -e
+                pip install -r requirements.txt
+                python manage.py collectstatic
+            deploy: |
+                python manage.py migrate
+                python manage.py create_cache_table
+            post_deploy: |
+                python manage.py clearcache
+        
+        relationships:
+            database: "postgresql:admin"
+            nosql: "mongodb:mongodb"
+            timeseries: "influxdb:influxdb"
+            cache: "redis:redis"
+            search: "elasticsearch:elasticsearch"
+            queue: "rabbitmq:rabbitmq"
+            stream: "kafka:kafka"
+            secrets: "vault:management"
+        
+        mounts:
+            '/media': 
+                source: service
+                service: network-storage
+                source_path: 'python/media'
+            '/cache':
+                source: tmp
+                source_path: 'cache'
+                
+        web:
+            commands:
+                start: 'gunicorn -w 4 -b unix:$SOCKET myapp.wsgi:application'
+            locations:
+                '/':
+                    passthru: true
+                    allow: false
+                '/static':
+                    root: 'static'
+                    expires: 1y
+                    allow: true
+                    
+        workers:
+            celery:
+                commands:
+                    start: 'celery -A myapp worker --loglevel=info'
+                relationships:
+                    queue: "rabbitmq:rabbitmq"
+                    
+        variables:
+            env:
+                DJANGO_SETTINGS_MODULE: 'myapp.settings.production'
+                DEBUG: false
+            python:
+                version: '3.12'
+                
+        resources:
+            base: S
+            vcpu: 2
+            memory: 1024
+            disk: 2048
+
+    # Node.js Application (Frontend)
+    nodejs-app:
+        type: nodejs:20
+        source:
+            root: '/nodejs'
+            
+        build:
+            flavor: none
+            
+        dependencies:
+            nodejs:
+                pm2: '^5.0.0'
+                
+        hooks:
+            build: |
+                npm ci
+                npm run build
+            post_deploy: |
+                npm run cache:warm
+                
+        relationships:
+            api: "python-app:http"
+            redis: "redis:redis"
+            search: "elasticsearch:elasticsearch"
+            
+        mounts:
+            '/.npm':
+                source: service
+                service: network-storage
+                source_path: 'nodejs/npm'
+            '/tmp':
+                source: tmp
+                source_path: 'tmp'
+                
+        web:
+            commands:
+                start: 'PM2_HOME=$PLATFORM_APP_DIR/run pm2 start ecosystem.config.js --no-daemon'
+            locations:
+                '/':
+                    root: 'dist'
+                    index: ['index.html']
+                    expires: '24h'
+                    scripts: true
+                '/api':
+                    passthru: true
+                    
+        workers:
+            queue:
+                commands:
+                    start: 'node ./workers/queue.js'
+                relationships:
+                    queue: "rabbitmq:rabbitmq"
+
+    # PHP Application (CMS)
+    php-app:
+        type: php:8.3
+        source:
+            root: '/php'
+            
+        build:
+            flavor: composer
+            
+        dependencies:
+            php:
+                composer/composer: '^2.0'
+                
+        hooks:
+            build: |
+                set -e
+                composer install --no-dev --no-interaction --no-progress
+            deploy: |
+                php artisan migrate --force
+                php artisan config:cache
+                
+        relationships:
+            database: "postgresql:admin"
+            cache: "redis-persistent:redis"
+            sessions: "redis:redis"
+            search: "elasticsearch:elasticsearch"
+            
+        mounts:
+            '/storage/app/public':
+                source: service
+                service: network-storage
+                source_path: 'php/public'
+            '/storage/framework/cache':
+                source: tmp
+                source_path: 'cache'
+                
+        web:
+            locations:
+                '/':
+                    root: 'public'
+                    passthru: '/index.php'
+                    index: ['index.php']
+                    scripts: true
+                    allow: true
+                    rules:
+                        \.(gif|jpe?g|png|ico|zip|ttf|eot|woff|woff2|css|js)$:
+                            allow: true
+                            
+        variables:
+            php:
+                display_errors: Off
+                memory_limit: '256M'
+                session.save_handler: 'redis'
+                
+        runtime:
+            extensions:
+                - redis
+                - pdo_pgsql
+                - gd
+                - zip
+
+# Go Application (Microservices)
+    golang-app:
+        type: golang:1.21
+        source:
+            root: '/golang'
+
+        hooks:
+            build: |
+                go mod download
+                go build -o bin/app cmd/main.go
+            post_deploy: |
+                ./bin/migrations
+
+        relationships:
+            database: "postgresql:admin"
+            cache: "redis:redis"
+            queue: "rabbitmq:rabbitmq"
+
+        mounts:
+            '/tmp':
+                source: tmp
+                source_path: 'tmp'
+
+        web:
+            commands:
+                start: './bin/app'
+            locations:
+                '/':
+                    passthru: true
+                '/metrics':
+                    allow: false
+
+        workers:
+            consumer:
+                commands:
+                    start: './bin/worker'
+                relationships:
+                    queue: "rabbitmq:rabbitmq"
+
+        variables:
+            env:
+                GO_ENV: 'production'
+
+    # Java Application (Enterprise Backend)
+    java-app:
+        type: java:17
+        source:
+            root: '/java'
+
+        build:
+            flavor: none
+
+        hooks:
+            build: |
+                ./mvnw clean package -DskipTests -Pprod
+            deploy: |
+                java -jar target/dependency/liquibase.jar update
+
+        relationships:
+            database: "postgresql:admin"
+            cache: "redis-persistent:redis"
+            search: "elasticsearch:elasticsearch"
+            queue: "kafka:kafka"
+
+        mounts:
+            '/tmp':
+                source: tmp
+                source_path: 'tmp'
+            '/logs':
+                source: service
+                service: network-storage
+                source_path: 'java/logs'
+
+        web:
+            commands:
+                start: |
+                    java -XX:+UseContainerSupport \
+                         -XX:MaxRAMPercentage=80 \
+                         -jar target/application.jar
+            locations:
+                '/':
+                    passthru: true
+                '/assets':
+                    root: 'static'
+                    expires: 1y
+
+        workers:
+            background:
+                commands:
+                    start: 'java -jar target/worker.jar'
+                relationships:
+                    queue: "kafka:kafka"
+
+    # Ruby Application (Background Processing)
+    ruby-app:
+        type: ruby:3.3
+        source:
+            root: '/ruby'
+
+        build:
+            flavor: none
+
+        hooks:
+            build: |
+                bundle install --deployment --without development test
+                bundle exec rake assets:precompile
+            deploy: |
+                bundle exec rake db:migrate
+
+        relationships:
+            database: "postgresql:admin"
+            redis: "redis:redis"
+            sidekiq: "redis-persistent:redis"
+            search: "elasticsearch:elasticsearch"
+
+        mounts:
+            '/public/uploads':
+                source: service
+                service: network-storage
+                source_path: 'ruby/uploads'
+            '/tmp':
+                source: tmp
+                source_path: 'tmp'
+
+        web:
+            commands:
+                start: 'bundle exec puma -C config/puma.rb'
+            locations:
+                '/':
+                    passthru: true
+                '/assets':
+                    root: 'public/assets'
+                    expires: 1y
+
+        workers:
+            sidekiq:
+                commands:
+                    start: 'bundle exec sidekiq'
+                relationships:
+                    redis: "redis-persistent:redis"
+
+    # .NET Application (Microservices)
+    dotnet-app:
+        type: dotnet:8.0
+        source:
+            root: '/dotnet'
+
+        hooks:
+            build: |
+                dotnet restore
+                dotnet publish -c Release -o out
+            deploy: |
+                dotnet tool restore
+                dotnet ef database update
+
+        relationships:
+            database: "postgresql:admin"
+            cache: "redis:redis"
+            messagebus: "rabbitmq:rabbitmq"
+
+        mounts:
+            '/tmp':
+                source: tmp
+                source_path: 'tmp'
+
+        web:
+            commands:
+                start: './out/MyApp --urls http://0.0.0.0:$PORT'
+            locations:
+                '/':
+                    passthru: true
+                '/swagger':
+                    allow: false
+
+        workers:
+            processor:
+                commands:
+                    start: './out/Worker'
+                relationships:
+                    queue: "rabbitmq:rabbitmq"
+
+    # Rust Application (High-Performance Services)
+    rust-app:
+        type: rust:1
+        source:
+            root: '/rust'
+
+        hooks:
+            build: |
+                cargo build --release
+                cargo test --release
+            deploy: |
+                ./target/release/migrations
+
+        relationships:
+            database: "postgresql:admin"
+            cache: "redis:redis"
+            queue: "kafka:kafka"
+
+        mounts:
+            '/tmp':
+                source: tmp
+                source_path: 'tmp'
+
+        web:
+            commands:
+                start: './target/release/server'
+            locations:
+                '/':
+                    passthru: true
+                '/metrics':
+                    allow: false
+
+        workers:
+            processor:
+                commands:
+                    start: './target/release/worker'
+                relationships:
+                    stream: "kafka:kafka"
+
+    # Elixir Application (Real-time Processing)
+    elixir-app:
+        type: elixir:1.15
+        source:
+            root: '/elixir'
+
+        hooks:
+            build: |
+                mix deps.get --only prod
+                mix compile
+                mix phx.digest
+                mix release
+            deploy: |
+                mix ecto.migrate
+
+        relationships:
+            database: "postgresql:admin"
+            redis: "redis:redis"
+            pubsub: "redis-persistent:redis"
+
+        mounts:
+            '/uploads':
+                source: service
+                service: network-storage
+                source_path: 'elixir/uploads'
+
+        web:
+            commands:
+                start: '_build/prod/rel/myapp/bin/myapp start'
+            locations:
+                '/':
+                    passthru: true
+                '/socket':
+                    allow: true
+                    headers:
+                        Access-Control-Allow-Origin: '*'
+
+    # Lisp Application (Specialized Processing)
+    lisp-app:
+        type: lisp:2.1
+        source:
+            root: '/lisp'
+
+        hooks:
+            build: |
+                sbcl --non-interactive \
+                     --load systems/load.lisp \
+                     --eval '(ql:quickload :my-application)' \
+                     --eval '(asdf:make :my-application)'
+            deploy: |
+                ./bin/migrate
+
+        relationships:
+            database: "postgresql:admin"
+            cache: "redis:redis"
+
+        mounts:
+            '/tmp':
+                source: tmp
+                source_path: 'tmp'
+
+        web:
+            commands:
+                start: './bin/server'
+            locations:
+                '/':
+                    passthru: true
+
+# Routes Configuration
+routes:
+    # Main application routes
+    'https://{default}/':
+        type: upstream
+        upstream: 'nodejs-app:http'
+        cache:
+            enabled: true
+            headers: ['Accept', 'Accept-Language']
+            cookies: ['*']
+            default_ttl: 3600
+        tls:
+            min_version: TLSv1.2
+            strict_transport_security:
+                enabled: true
+                include_subdomains: true
+                preload: true
+
+    # Python API Routes
+    'https://api.{default}/':
+        type: upstream
+        upstream: 'python-app:http'
+        cache:
+            enabled: false
+        ssi:
+            enabled: false
+
+    # PHP Application Routes
+    'https://cms.{default}/':
+        type: upstream
+        upstream: 'php-app:http'
+        cache:
+            enabled: true
+            cookies: ['PHPSESSID']
+        redirects:
+            expires: 1d
+
+    # Go Microservices Routes
+    'https://services.{default}/':
+        type: upstream
+        upstream: 'golang-app:http'
+        cache:
+            enabled: false
+        http_access:
+            basic_auth:
+                username: 'service'
+                password: 'secret'
+
+    # Java Application Routes
+    'https://backend.{default}/':
+        type: upstream
+        upstream: 'java-app:http'
+        cache:
+            enabled: false
+        headers:
+            Access-Control-Allow-Methods: 'GET,POST,PUT,DELETE,PATCH,OPTIONS'
+            Access-Control-Allow-Headers: 'Authorization,Content-Type'
+
+    # Ruby Application Routes
+    'https://admin.{default}/':
+        type: upstream
+        upstream: 'ruby-app:http'
+        cache:
+            enabled: false
+        http_access:
+            addresses: ['0.0.0.0/0']
+            basic_auth:
+                username: admin
+                password: secret
+
+    # .NET API Routes
+    'https://api.internal.{default}/':
+        type: upstream
+        upstream: 'dotnet-app:http'
+        cache:
+            enabled: false
+        http_access:
+            addresses: ['10.0.0.0/8']
+
+    # Rust Service Routes
+    'https://performance.{default}/':
+        type: upstream
+        upstream: 'rust-app:http'
+        cache:
+            enabled: false
+
+    # Elixir Real-time Routes
+    'https://realtime.{default}/':
+        type: upstream
+        upstream: 'elixir-app:http'
+        cache:
+            enabled: false
+        websockets:
+            enabled: true
+
+    # Lisp Application Routes
+    'https://processor.{default}/':
+        type: upstream
+        upstream: 'lisp-app:http'
+        cache:
+            enabled: false
+
+    # Redirect www to non-www
+    'https://www.{default}/':
+        type: redirect
+        to: 'https://{default}/'
+
+    # Asset CDN routes
+    'https://static.{default}/':
+        type: upstream
+        upstream: 'nodejs-app:http'
+        cache:
+            enabled: true
+            default_ttl: 86400
+        rules:
+            \.(?:css|js|gif|jpe?g|png|svg|ttf|woff2?)$:
+                cache:
+                    enabled: true
+                    default_ttl: 2592000  # 30 days
+
+    # Monitoring endpoints
+    'https://metrics.{default}/':
+        type: upstream
+        upstream: 'golang-app:http'
+        cache:
+            enabled: false
+        http_access:
+            addresses: ['10.0.0.0/8']
+            basic_auth:
+                username: monitor
+                password: secret
