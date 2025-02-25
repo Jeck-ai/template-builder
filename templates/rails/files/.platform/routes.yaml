@@ -4,5 +4,5 @@
 # to be processed by Platform.sh.
 
 "https://{default}":
-  type: upstream
-  upstream: "app:http"
+    type: upstream
+    upstream: "app:http"

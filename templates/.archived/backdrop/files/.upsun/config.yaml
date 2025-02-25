@@ -1,0 +1,93 @@
+applications:
+    app:
+        # The type key specifies the language and version for your application.
+        type: 'php:8.1'
+        # On PHP, there are multiple build flavors available. Pretty much everyone
+        # except Drupal 7 and Backdrop users will want the composer flavor.
+        build:
+            flavor: none
+        # The relationships of the application with services or other applications.
+        # The left-hand side is the name of the relationship as it will be exposed
+        # to the application in the PLATFORM_RELATIONSHIPS variable. The right-hand
+        # side is in the form `<service name>:<endpoint name>`.
+        relationships:
+            database: 'db:mysql'
+        # The build-time dependencies of the app.
+        dependencies:
+            php:
+                "drush/drush": "^8.0"
+        # The hooks that will be triggered when the package is deployed.
+        hooks:
+            # Build hooks can modify the application files on disk but not access any services like databases.
+            build: |
+                set -e
+                # Install Drush integration for Backdrop
+                VERSION=1.x-1.x
+                mkdir -p .drush/commands
+                cd .drush/commands
+                wget https://github.com/backdrop-contrib/backdrop-drush-extension/archive/refs/heads/$VERSION.zip
+                unzip $VERSION.zip -d backdrop
+                rm $VERSION.zip
+            deploy: |
+                set -e
+                # Force Platform.sh file paths.
+                drush scr set_psh_file_paths.php
+                # Import configuration on deploy.
+                cd $PLATFORM_APP_DIR/web
+                drush cc drush
+                drush updb -y
+                drush bcim -y
+                drush cc all
+        # The 'mounts' describe writable, persistent filesystem mounts in the application.
+        # The keys are directory paths relative to the application root.
+        mounts:
+            '/web/files':
+                source: storage
+                source_path: 'web-files'
+            '/tmp':
+                source: storage
+                source_path: 'tmp'
+            '/private':
+                source: storage
+                source_path: 'private'
+            '/config/active':
+                source: storage
+                source_path: 'active'
+            '/config/staging':
+                source: storage
+                source_path: 'staging'
+        # The configuration of the application when it is exposed to the web.
+        web:
+            locations:
+                '/':
+                    # The public directory of the application relative to its root.
+                    root: 'web'
+                    # The front-controller script which determines where to send
+                    # non-static requests.
+                    passthru: '/index.php'
+                # Allow uploaded files to be served, but do not run scripts.
+                # Missing files get mapped to the front controller above.
+                '/files':
+                    # Allow access to all files in the public files directory.
+                    allow: true
+                    expires: 5m
+                    passthru: '/index.php'
+                    root: 'web/files'
+                    # Do not execute PHP scripts.
+                    scripts: false
+        source:
+            root: /
+services:
+    db:
+        type: mariadb:10.4
+routes:
+    "https://{default}/":
+        type: upstream
+        upstream: "app:http"
+        cache:
+            enabled: true
+            # Base the cache on the session cookie. Ignore all other cookies.
+            cookies: ['/^SS?ESS/']
+    "https://www.{default}/":
+        type: redirect
+        to: "https://{default}/"

@@ -1,0 +1,356 @@
+# Upsun Configuration Guide
+
+This guide provides a comprehensive overview of configuring applications on Upsun using the `.upsun/config.yaml` file.
+
+## Table of Contents
+- [Basic Structure](#basic-structure)
+- [Services](#services)
+  - [Database Services](#database-services)
+  - [Cache Services](#cache-services)
+  - [Search Services](#search-services)
+  - [Message Queue Services](#message-queue-services)
+  - [Storage Services](#storage-services)
+- [Applications](#applications)
+  - [Runtime Configuration](#runtime-configuration)
+  - [Build & Deploy](#build--deploy)
+  - [Web Configuration](#web-configuration)
+  - [Workers & Crons](#workers--crons)
+- [Routes](#routes)
+
+## Basic Structure
+
+The `.upsun/config.yaml` file consists of three main sections:
+```yaml
+services:
+    # Service definitions
+
+applications:
+    # Application configurations
+
+routes:
+    # Routing rules
+```
+
+## Services
+
+### Database Services
+
+#### PostgreSQL
+```yaml
+services:
+    postgresql:
+        type: postgresql:16  # Versions: 16, 15, 14, 13, 12
+        disk: 2048
+        configuration:
+            # Extensions
+            extensions:
+                - pg_trgm
+                - postgis
+            # Optional timezone
+            properties:
+                timezone: 'UTC'
+            # Multiple databases
+            databases:
+                - main
+                - analytics
+            endpoints:
+                admin:
+                    privileges:
+                        main: admin
+                readonly:
+                    privileges:
+                        main: ro
+```
+
+Key features:
+- Multiple database support
+- Extensive extension system
+- Different access levels (admin, read-only, read-write)
+- Custom timezone settings
+
+#### MySQL/MariaDB
+```yaml
+services:
+    mariadb:
+        type: mariadb:11.4  # Versions: 11.4-10.4
+        disk: 2048
+        configuration:
+            properties:
+                default_charset: utf8mb4
+                default_collation: utf8mb4_unicode_ci
+                max_allowed_packet: 64
+                table_open_cache: 400
+```
+
+Key features:
+- Character set and collation settings
+- Performance tuning options
+- Multiple database support
+- User permission management
+
+#### MongoDB
+```yaml
+services:
+    mongodb-enterprise:
+        type: mongodb-enterprise:7.0  # Versions: 7.0, 6.0, 5.0, 4.4
+        disk: 2048
+```
+
+Notes:
+- No downgrade support
+- Sequential version upgrades required
+- Enterprise and legacy editions available
+
+### Cache Services
+
+#### Redis
+```yaml
+services:
+    # Ephemeral Redis
+    redis:
+        type: redis:7.2  # Versions: 7.2, 7.0, 6.2
+        configuration:
+            maxmemory_policy: allkeys-lfu
+
+    # Persistent Redis
+    redis-persistent:
+        type: redis-persistent:7.2
+        disk: 2048
+```
+
+Features:
+- Multiple database support (up to 64 in 3.0+)
+- Configurable eviction policies
+- Session handler capability
+- Memory management options
+
+#### Memcached
+```yaml
+services:
+    memcached:
+        type: memcached:1.6  # Versions: 1.6, 1.5
+```
+
+Notes:
+- Simple memory-only cache
+- No authentication
+- No persistence
+
+### Search Services
+
+#### Elasticsearch
+```yaml
+services:
+    elasticsearch:
+        type: elasticsearch:8.5  # Versions: 8.5, 7.17
+        disk: 2048
+        configuration:
+            plugins:
+                - analysis-icu
+                - analysis-phonetic
+                - analysis-kuromoji
+```
+
+Features:
+- Extensive plugin system
+- Language analysis support
+- No data upgrade mechanism between versions
+
+#### Solr
+```yaml
+services:
+    solr:
+        type: solr:9.6  # Versions: 9.6-8.11
+        disk: 2048
+        configuration:
+            cores:
+                mainindex:
+                    conf_dir: !archive "core1-conf"
+            configsets:
+                mainconfig: !archive "configsets/solr8"
+```
+
+Features:
+- Multiple core support
+- Shared configsets
+- Custom schema support
+
+### Message Queue Services
+
+#### RabbitMQ
+```yaml
+services:
+    rabbitmq:
+        type: rabbitmq:3.13  # Versions: 3.13, 3.12
+        disk: 1024
+        configuration:
+            vhosts:
+                - host1
+                - host2
+```
+
+Features:
+- Virtual hosts support
+- Management UI
+- AMQP protocol support
+
+#### Kafka
+```yaml
+services:
+    kafka:
+        type: kafka:3.7  # Versions: 3.7, 3.6, 3.4, 3.2
+        disk: 2048
+```
+
+Features:
+- Stream processing
+- High throughput
+- Durable message storage
+
+### Storage Services
+
+#### Network Storage
+```yaml
+services:
+    storage:
+        type: network-storage:2.0
+        disk: 5120
+```
+
+Features:
+- Shared between applications
+- Mount point flexibility
+- No version upgrades (requires reinitialize)
+
+#### Vault KMS
+```yaml
+services:
+    vault:
+        type: vault-kms:1.12
+        disk: 512
+        configuration:
+            endpoints:
+                management:
+                    key: admin-key
+                    policy: admin
+                sign_verify:
+                    key: signing-key
+                    - policy: sign
+                    - policy: verify
+```
+
+Features:
+- Key management
+- Encryption as a service
+- Multiple endpoint types
+
+## Applications
+
+### Runtime Configuration
+```yaml
+applications:
+    app:
+        type: python:3.12
+        source:
+            root: '/'
+        
+        relationships:
+            database: "postgresql:postgresql"
+            cache: "redis:redis"
+            search: "elasticsearch:elasticsearch"
+```
+
+### Build & Deploy
+```yaml
+        hooks:
+            build: |
+                pip install -r requirements.txt
+            deploy: |
+                python manage.py migrate
+            post_deploy: |
+                python manage.py check --deploy
+
+        mounts:
+            'storage/':
+                source: service
+                service: storage
+                source_path: 'storage'
+```
+
+### Web Configuration
+```yaml
+        web:
+            commands:
+                start: 'gunicorn -w 4 -b unix:$SOCKET myapp.wsgi:application'
+            
+            locations:
+                '/':
+                    root: 'public'
+                    passthru: true
+                    expires: 24h
+                '/static':
+                    root: 'static'
+                    expires: 1y
+```
+
+### Workers & Crons
+```yaml
+        workers:
+            queue:
+                commands:
+                    start: 'python worker.py'
+                relationships:
+                    database: "postgresql:postgresql"
+
+        crons:
+            backup:
+                spec: '0 5 * * *'
+                cmd: 'python backup.py'
+```
+
+## Routes
+
+```yaml
+routes:
+    'https://{default}/':
+        type: upstream
+        upstream: 'app:http'
+        cache:
+            enabled: true
+            cookies: ['*']
+            default_ttl: 3600
+    
+    'https://www.{default}/':
+        type: redirect
+        to: 'https://{default}/'
+```
+
+Key features:
+- HTTPS by default
+- Cache control
+- Multiple domain support
+- Service-specific routing
+- Redirect capabilities
+
+## Important Notes
+
+1. Version Management:
+   - Most services require sequential upgrades
+   - Some services don't support downgrades
+   - Version changes might require data migration
+
+2. Resource Allocation:
+   - Each service and application can have custom resource allocations
+   - Memory and disk space affect service performance
+   - Worker resources can be configured independently
+
+3. Security:
+   - Services are not accessible via HTTP directly
+   - Authentication is managed through relationships
+   - Sensitive data should use environment variables
+
+4. Best Practices:
+   - Use environment variables for configuration
+   - Implement proper backup strategies
+   - Test upgrades in development environments first
+   - Monitor resource usage and adjust accordingly

@@ -1,0 +1,30 @@
+applications:
+    app:
+        # The runtime the application uses.
+        type: "java:11"
+        # The hooks executed at various points in the lifecycle of the application.
+        hooks:
+            build: mvn clean package
+        # The relationships of the application with services or other applications.
+        #
+        # The left-hand side is the name of the relationship as it will be exposed
+        # to the application in the PLATFORM_RELATIONSHIPS variable. The right-hand
+        # side is in the form `<service name>:<endpoint name>`.
+        relationships:
+            database: "db:mongodb"
+        # The configuration of app when it is exposed to the web.
+        web:
+            commands:
+                start: java -jar $JAVA_OPTS target/spring-mvc-maven-mongodb.jar --server.port=$PORT
+        source:
+            root: /
+services:
+    db:
+        type: mongodb:3.6
+routes:
+    "https://{default}/":
+        type: upstream
+        upstream: "app:http"
+    "https://www.{default}/":
+        type: redirect
+        to: "https://{default}/"

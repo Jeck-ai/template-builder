@@ -8,7 +8,7 @@ dbpostgres:
     disk: 256
 
 cacheredis:
-    type: redis:6.0
+    type: redis:6.2
 
 ratelimitredis:
-    type: redis:6.0
+    type: redis:6.2

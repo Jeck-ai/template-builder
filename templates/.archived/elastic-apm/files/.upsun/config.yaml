@@ -1,0 +1,100 @@
+applications:
+    apm:
+        type: 'golang:1.14'
+        hooks:
+            build: |
+                APM_VERSION=$(cat apm_version)
+                wget --quiet -c https://artifacts.elastic.co/downloads/apm-server/apm-server-$APM_VERSION-linux-x86_64.tar.gz -O - | tar -xz
+                mv apm-server-$APM_VERSION-linux-x86_64 apm-server
+            deploy: |
+                ./apm-server/apm-server setup -e  -E output.elasticsearch.hosts=$ELASTICSEARCH_HOSTS -E output.elasticsearch.username=$ELASTICSEARCH_USERNAME -E output.elasticsearch.password=$ELASTICSEARCH_PASSWORD -E setup.template.overwrite=false
+        web:
+            ## The commands section lists programs to start when the container is deployed,
+            ## typically starting your application.
+            # the environment variables for elasticsearch are defined in apm/.environment
+            commands:
+                start: ./apm-server/apm-server -e -E output.elasticsearch.hosts=$ELASTICSEARCH_HOSTS -E output.elasticsearch.username=$ELASTICSEARCH_USERNAME -E output.elasticsearch.password=$ELASTICSEARCH_PASSWORD -E setup.template.overwrite=false
+        ## You can add services in .platform/services.yaml, to use them in your application
+        ## you will need to create a relationship for example:
+        #
+        relationships:
+            essearch: "searchelastic:elasticsearch"
+            kibana: "kibana:http"
+        ## Each mount is a pairing of the local path on the application container to
+        ## the persistent mount where it lives. At this time, only 'shared:files' is
+        ## a supported mount.
+        mounts:
+            "/apm-server/logs":
+                source: storage
+                source_path: "logs"
+            "/apm-server/data":
+                source: storage
+                source_path: "data"
+        source:
+            root: /apm/
+    kibana:
+        type: nodejs:10
+        variables:
+            env:
+                KIBANA_PLATFORM: linux-x86_64
+                KIBANA_HOME: '/app/kibana'
+        hooks:
+            build: |
+                bash ./build.sh
+            deploy: |
+                # this is just an optimization we copy over the optimize
+                # files without clobbering
+                mkdir -p kibana/optimize/bundles
+                cp -n -r _kibana_optimize/* kibana/optimize/bundles
+        web:
+            ## The commands section lists programs to start when the container is deployed,
+            ## typically starting your application.
+            commands:
+                start: ./kibana/bin/kibana --verbose  -c /app/kibana/config/kibana.yml --elasticsearch.hosts=$ELASTICSEARCH_HOSTS --elasticsearch.username=$ELASTICSEARCH_USERNAME --elasticsearch.password=$ELASTICSEARCH_PASSWORD
+            locations:
+                "/":
+                    passthru: true
+                "/app/kibana":
+                    passthru: true
+                "/bundles":
+                    passthru: true
+                "/status":
+                    passthru: true
+                "/plugins":
+                    passthru: true
+        ## You can add services in .platform/services.yaml, to use them in your application
+        ## you will need to create a relationship for example:
+        #
+        relationships:
+            essearch: "searchelastic:elasticsearch"
+        ## Each mount is a pairint of the local path on the application container to
+        ## the persistent mount where it lives. At this time, only 'shared:files' is
+        ## a supported mount.
+        mounts:
+            "/run":
+                source: storage
+                source_path: "run"
+            "/kibana/data":
+                source: storage
+                source_path: "data"
+            "/kibana/optimize":
+                source: storage
+                source_path: "optimize"
+            "/kibana/plugins":
+                source: storage
+                source_path: "plugins"
+        source:
+            root: /kibana/
+services:
+    searchelastic:
+        type: elasticsearch:7.2
+        configuration:
+            authentication:
+                enabled: true
+routes:
+    "https://apm.{default}/":
+        type: upstream
+        upstream: "apm:http"
+    "https://{default}/":
+        type: upstream
+        upstream: "kibana:http"
