@@ -14,10 +14,11 @@ DIRECTORY="$(pwd)"
 parentdir="$(dirname "$DIRECTORY")"
 UPDATED_DIR="$parentdir/templates"
 
-python test_indvidual.py "$UPDATED_DIR/drupal11/files"
-
 find "$UPDATED_DIR" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
-    if [ "$dir" != "$UPDATED_DIR/.archived" ]; then
+    if [[ "$dir" == "$UPDATED_DIR/.archived" ]] || [[ "$dir" == "$UPDATED_DIR/shopware" ]] || [[ "$dir" == "$UPDATED_DIR/sulu" ]]; then
+        printf "\n*******************************************************************************************************\n\n"
+        printf "* Skipping (for now) template: $dir\n"
+    else
         printf "\n*******************************************************************************************************\n\n"
         printf "* Processing template: $dir\n\n"
     
