@@ -7,7 +7,7 @@
 name: app
 
 # The runtime the application uses.
-type: php:7.4
+type: php:8.1
 
 # The relationships of the application with services or other applications.
 #
@@ -104,7 +104,8 @@ hooks:
 crons:
     pimcore_cron:
         spec: "*/5 * * * *"
-        commands: "bin/console maintenance"
+        commands: 
+            start: "bin/console maintenance"
 
 source:
   operations:

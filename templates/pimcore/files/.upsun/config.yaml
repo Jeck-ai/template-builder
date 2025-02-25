@@ -1,7 +1,7 @@
 applications:
     app:
         # The runtime the application uses.
-        type: php:7.4
+        type: php:8.1
         # The relationships of the application with services or other applications.
         #
         # The left-hand side is the name of the relationship as it will be exposed
@@ -87,7 +87,8 @@ applications:
         crons:
             pimcore_cron:
                 spec: "*/5 * * * *"
-                commands: "bin/console maintenance"
+                commands: 
+                    start: "bin/console maintenance"
         source:
             operations:
                 auto-update:
@@ -102,7 +103,7 @@ services:
     db:
         type: mariadb:10.4
     cache:
-        type: redis:5.0
+        type: redis:6.2
 routes:
     "https://{default}/":
         type: upstream

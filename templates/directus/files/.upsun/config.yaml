@@ -1,7 +1,7 @@
 applications:
     app:
         # The runtime the application uses.
-        type: nodejs:12
+        type: nodejs:16
         # The relationships of the application with services or other applications.
         #
         # The left-hand side is the name of the relationship as it will be exposed
@@ -75,9 +75,10 @@ services:
     dbpostgres:
         type: postgresql:12
     cacheredis:
-        type: redis:6.0
+        type: redis:6.2
+
     ratelimitredis:
-        type: redis:6.0
+        type: redis:6.2
 routes:
     "https://www.{default}/":
         type: upstream

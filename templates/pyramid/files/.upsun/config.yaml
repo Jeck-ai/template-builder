@@ -32,7 +32,7 @@ services:
     db:
         type: "mariadb:10.4"
     cache:
-        type: "redis:5.0"
+        type: "redis:6.2"
 routes:
     "https://{default}/":
         type: upstream

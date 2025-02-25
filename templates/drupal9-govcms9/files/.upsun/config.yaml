@@ -1,7 +1,7 @@
 applications:
     drupal:
         # The runtime the application uses.
-        type: 'php:8.0'
+        type: 'php:8.1'
         dependencies:
             php:
                 composer/composer: '^2'
@@ -134,7 +134,7 @@ services:
     db:
         type: mariadb:10.4
     cache:
-        type: redis:6.0
+        type: redis:6.2
 routes:
     "https://{default}/":
         type: upstream

@@ -14,16 +14,21 @@ DIRECTORY="$(pwd)"
 parentdir="$(dirname "$DIRECTORY")"
 UPDATED_DIR="$parentdir/templates"
 
+python test_indvidual.py "$UPDATED_DIR/drupal11/files"
+
 find "$UPDATED_DIR" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
-    printf "\n*******************************************************************************************************\n\n"
-    printf "* Processing template: $dir\n\n"
+    if [ "$dir" != "$UPDATED_DIR/.archived" ]; then
+        printf "\n*******************************************************************************************************\n\n"
+        printf "* Processing template: $dir\n\n"
+    
+        # In-house validation
+        python test_individual.py "$dir/files"
 
-    # In-house validation
-    python test_individual.py "$dir/files"
+        # Built-in CLI validation
+        cd "$dir/files"
+        upsun app:config-validate
+        cd $DIRECTORY
 
-    # Built-in CLI validation
-    cd "$dir/files"
-    upsun app:config-validate
-    cd $DIRECTORY
+    fi
 
 done

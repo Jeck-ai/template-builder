@@ -41,11 +41,22 @@ applications:
                 composer/composer: '^2'
         # The mounts that will be performed when the package is deployed.
         mounts:
-            "/var/cache": "shared:files/cache"
-            "/var/log": "shared:files/log"
-            "/var/sessions": "shared:files/sessions"
-            "/public/uploads": "shared:files/uploads"
-            "/public/media": "shared:files/media"
+            "/var/cache":
+                source: storage
+                source_path: "files/cache"
+            "/var/log":
+                source: storage
+                source_path: "files/log"
+            "/var/sessions":
+                source: storage
+                source_path: "files/sessions"
+            "/public/uploads": 
+                source: storage
+                source_path: "files/uploads"
+            "/public/media": 
+                source: storage
+                source_path: "files/media"
+
         # The configuration of app when it is exposed to the web.
         web:
             locations:
@@ -90,7 +101,7 @@ applications:
             root: /
 services:
     db:
-        type: mysql:10.2
+        type: mysql:10.3
 routes:
     "https://{default}/":
         type: upstream

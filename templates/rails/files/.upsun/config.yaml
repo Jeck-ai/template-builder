@@ -1,7 +1,7 @@
 applications:
     app:
         # The runtime the application uses.
-        type: "ruby:2.7"
+        type: "ruby:3.0"
         dependencies:
             nodejs:
                 yarn: "*"

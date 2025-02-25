@@ -1,7 +1,7 @@
 applications:
     app:
         # The type key specifies the language and version for your application.
-        type: "nodejs:14"
+        type: "nodejs:16"
         dependencies:
             nodejs:
                 yarn: "^1.22.0"
@@ -40,7 +40,6 @@ applications:
                     command: |
                         curl -fsS https://raw.githubusercontent.com/platformsh/source-operations/main/setup.sh | { bash /dev/fd/3 sop-autoupdate; } 3<&0
             root: /
-services: null
 routes:
     "https://www.{default}/":
         type: upstream
