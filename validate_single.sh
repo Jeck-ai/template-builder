@@ -22,7 +22,7 @@ DIRECTORY="$(pwd)"
 parentdir="$(dirname "$DIRECTORY")"
 UPDATED_DIR="$parentdir/templates"
 
-python test_individual.py "$UPDATED_DIR/$TEMPLATE/files"
+python validate_single.py "$UPDATED_DIR/$TEMPLATE/files"
 
 printf "\n\nBUILT-IN CLI VALIDATION\n\n"
 cd "$UPDATED_DIR/$TEMPLATE/files"

@@ -15,6 +15,7 @@ parentdir="$(dirname "$DIRECTORY")"
 UPDATED_DIR="$parentdir/templates"
 
 find "$UPDATED_DIR" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
+    # @todo: sulu
     if [[ "$dir" == "$UPDATED_DIR/.archived" ]] || [[ "$dir" == "$UPDATED_DIR/sulu" ]]; then
         printf "\n*******************************************************************************************************\n\n"
         printf "* Skipping (for now) template: $dir\n"
@@ -23,7 +24,7 @@ find "$UPDATED_DIR" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
         printf "* Processing template: $dir\n\n"
     
         # In-house validation
-        python test_individual.py "$dir/files"
+        python validate_single.py "$dir/files"
 
         # Built-in CLI validation
         cd "$dir/files"
